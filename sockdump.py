@@ -11,6 +11,20 @@ import multiprocessing
 from bcc import BPF
 
 bpf_text = '''
+// https://github.com/Yelp/pidtree-bcc/pull/82/files
+// This is just a work around to some issues with latest kernels:
+// - https://github.com/iovisor/bcc/issues/3366
+// - https://github.com/iovisor/bcc/issues/3993
+struct bpf_timer {
+    __u64 :64;
+    __u64 :64;
+};
+enum {
+    BPF_F_BROADCAST       = (1ULL << 3),
+    BPF_F_EXCLUDE_INGRESS = (1ULL << 4),
+};
+#define BPF_PSEUDO_FUNC 4
+
 #include <linux/sched.h>
 #include <linux/net.h>
 #include <uapi/linux/un.h>
