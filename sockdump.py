@@ -30,6 +30,8 @@ struct packet {
     u32 peer_pid;
     u32 len;
     u32 flags;
+    u64 inode;
+    u64 peer_inode;
     char comm[TASK_COMM_LEN];
     char path[UNIX_PATH_MAX];
     char data[SS_MAX_SEG_SIZE];
@@ -96,6 +98,8 @@ int probe_unix_socket_sendmsg(struct pt_regs *ctx,
     bpf_get_current_comm(&packet->comm, sizeof(packet->comm));
     bpf_probe_read(&packet->path, UNIX_PATH_MAX, sock_path);
     packet->peer_pid = sock->sk->sk_peer_pid->numbers->nr;
+    packet->inode = sock->file->f_inode->i_ino;
+    packet->peer_inode = ((struct unix_sock *)sock->sk)->peer->sk_socket->file->f_inode->i_ino;
 
     __PID_FILTER__
 
@@ -240,12 +244,15 @@ class Packet(ct.Structure):
         ('peer_pid', ct.c_uint),
         ('len', ct.c_uint),
         ('flags', ct.c_uint),
+        ('inode', ct.c_uint64),
+        ('peer_inode', ct.c_uint64),
         ('comm', ct.c_char * TASK_COMM_LEN),
         ('path', ct.c_char * UNIX_PATH_MAX),
         # variable length data
     ]
 
-PCAP_LINK_TYPE = 147    # USER_0
+PCAP_LINK_TYPE = 228    # IPV4
+# PCAP_LINK_TYPE = 229    # IPV6
 
 PACKET_SIZE = ct.sizeof(Packet)
 
@@ -272,9 +279,9 @@ def print_header(packet, data):
     ts = time.time()
     ts = time.strftime('%H:%M:%S', time.localtime(ts)) + '.%03d' % (ts%1 * 1000)
 
-    print('%s >>> process %s [%d -> %d] path %s len %d(%d)' % (
+    print('%s >>> process %s [%d -> %d] path %s len %d(%d) (inode %d -> %d)' % (
         ts, packet.comm.decode(), packet.pid, packet.peer_pid,
-        packet.path.decode(), len(data), packet.len))
+        packet.path.decode(), len(data), packet.len, packet.inode, packet.peer_inode))
 
 def string_output(cpu, event, size):
     packet, data = parse_event(event, size)
@@ -325,6 +332,9 @@ def pcap_write_record(ts_sec, ts_usec, orig_len, data):
     header = struct.pack('=IIII', ts_sec, ts_usec, len(data), orig_len)
     sys.stdout.write(header)
     sys.stdout.write(data)
+    sys.stdout.flush()
+
+seq = {}
 
 def pcap_output(cpu, event, size):
     packet, data = parse_event(event, size)
@@ -332,7 +342,15 @@ def pcap_output(cpu, event, size):
     ts = time.time()
     ts_sec = int(ts)
     ts_usec = int((ts % 1) * 10**6)
-    header = struct.pack('>QQ', packet.peer_pid, packet.pid)
+
+    cur = seq.setdefault((packet.inode, packet.peer_inode), 1)
+    header = struct.pack('>HHIIBBHHH', packet.peer_inode % 10000, packet.inode % 10000, cur % ((1 << 32) - 1), 0, 5 << 4, 0, 1, 0, 0)
+    seq[(packet.inode, packet.peer_inode)] += packet.len
+
+    if PCAP_LINK_TYPE == 228: # IPV4
+        header = struct.pack('>BBHIBBHII', 4 << 4 | 5, 0, 20 + len(header) + packet.len, 0, 64, 6, 0, 0, 0) + header
+    elif PCAP_LINK_TYPE == 229: # IPV6
+        header = struct.pack('>BBHHBBQQQQ', 6 << 4, 0, 0, len(header) + packet.len, 6, 64, 0, 0, 0, 0) + header
 
     data = header + data
     size = len(header) + packet.len
