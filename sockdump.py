@@ -257,13 +257,14 @@ class Packet(ct.Structure):
         ('peer_inode', ct.c_uint64),
         ('comm', ct.c_char * TASK_COMM_LEN),
         ('path', ct.c_char * UNIX_PATH_MAX),
+        ('data', ct.c_char * 0),
         # variable length data
     ]
 
 PCAP_LINK_TYPE = 228    # IPV4
 # PCAP_LINK_TYPE = 229    # IPV6
 
-PACKET_SIZE = ct.sizeof(Packet)
+PACKET_SIZE = Packet.data.byte_offset
 
 packet_count = 0
 flush_after_each_packet = False
