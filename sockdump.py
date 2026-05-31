@@ -371,9 +371,11 @@ def pcap_output(cpu, event, size):
     seq[(packet.inode, packet.peer_inode)] += packet.len
 
     if PCAP_LINK_TYPE == 228: # IPV4
-        header = struct.pack('>BBHIBBHII', 4 << 4 | 5, 0, 20 + len(header) + packet.len, 0, 64, 6, 0, 0, 0) + header
+        ip = lambda pid: sum(pid // 100**i % 100 * 256**i for i in range(4))
+        header = struct.pack('>BBHIBBHII', 4 << 4 | 5, 0, 20 + len(header) + packet.len, 0, 64, 6, 0, ip(packet.pid), ip(packet.peer_pid)) + header
     elif PCAP_LINK_TYPE == 229: # IPV6
-        header = struct.pack('>BBHHBBQQQQ', 6 << 4, 0, 0, len(header) + packet.len, 6, 64, 0, 0, 0, 0) + header
+        ip = lambda pid: sum(pid // 10**i % 10 * 16**i for i in range(16))
+        header = struct.pack('>BBHHBBQQQQ', 6 << 4, 0, 0, len(header) + packet.len, 6, 64, ip(packet.pid), 0, ip(packet.peer_pid), 0) + header
 
     data = header + data
     size = len(header) + packet.len
