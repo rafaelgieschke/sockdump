@@ -375,7 +375,7 @@ def pcap_output(cpu, event, size):
             inode = 0
     cur = seq.setdefault((inode, peer_inode), 1)
 
-    header = struct.pack('>HHIIBBHHH', inode % 10000, peer_inode % 10000, cur % 2**32, 0, 5 << 4, 0, 1, 0, 0)
+    header = struct.pack('>HHIIBBHHH', inode % 10000 or 10000, peer_inode % 10000 or 10000, cur % 2**32, 0, 5 << 4, 0, 1, 0, 0)
     seq[(inode, peer_inode)] += packet.len
 
     if PCAP_LINK_TYPE == 228: # IPV4
