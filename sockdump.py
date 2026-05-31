@@ -12,6 +12,15 @@ import os
 from bcc import BPF
 
 bpf_text = '''
+#define BPF_TRACE_FSESSION 58
+#define BPF_F_CPU 8
+#define BPF_F_ALL_CPUS 16
+
+// https://github.com/mechpen/sockdump/issues/32#issue-4113810781
+struct bpf_task_work {
+   __u64 __opaque;
+} __attribute__((aligned(8)));
+
 #include <linux/sched.h>
 #include <linux/net.h>
 #include <uapi/linux/un.h>
@@ -396,7 +405,8 @@ def main(args):
         BPF(text=text, debug=8)
         return
 
-    b = BPF(text=text)
+    # https://github.com/mechpen/sockdump/issues/32#issuecomment-4120794972
+    b = BPF(text=text, cflags=['-Wno-microsoft-anon-tag', '-fms-extensions'])
     b.attach_kprobe(
         event='unix_stream_sendmsg', fn_name='probe_unix_socket_sendmsg')
     b.attach_kprobe(
