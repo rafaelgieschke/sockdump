@@ -261,8 +261,7 @@ class Packet(ct.Structure):
         # variable length data
     ]
 
-PCAP_LINK_TYPE = 228    # IPV4
-# PCAP_LINK_TYPE = 229    # IPV6
+PCAP_LINK_TYPE = 147    # USER_0
 
 PACKET_SIZE = Packet.data.byte_offset
 
@@ -366,24 +365,27 @@ def pcap_output(cpu, event, size):
     ts_sec = int(ts)
     ts_usec = int((ts % 1) * 10**6)
 
-    inode = packet.inode
-    peer_inode = packet.peer_inode
-    if ((inode, peer_inode) not in seq):
-        if ((inode, 0) in seq):
-            peer_inode = 0
-        elif ((peer_inode, 0) in seq):
-            inode = 0
-    cur = seq.setdefault((inode, peer_inode), 1)
+    if PCAP_LINK_TYPE == 147:
+        header = struct.pack(f'>{UNIX_PATH_MAX + 1}pQQ', packet.path, packet.peer_pid, packet.pid)
+    else:
+        inode = packet.inode
+        peer_inode = packet.peer_inode
+        if ((inode, peer_inode) not in seq):
+            if ((inode, 0) in seq):
+                peer_inode = 0
+            elif ((peer_inode, 0) in seq):
+                inode = 0
+        cur = seq.setdefault((inode, peer_inode), 1)
 
-    header = struct.pack('>HHIIBBHHH', inode % 10000 or 10000, peer_inode % 10000 or 10000, cur % 2**32, 0, 5 << 4, 0, 1, 0, 0)
-    seq[(inode, peer_inode)] += packet.len
+        header = struct.pack('>HHIIBBHHH', inode % 10000 or 10000, peer_inode % 10000 or 10000, cur % 2**32, 0, 5 << 4, 0, 1, 0, 0)
+        seq[(inode, peer_inode)] += packet.len
 
-    if PCAP_LINK_TYPE == 228: # IPV4
-        ip = lambda pid: sum(pid // 100**i % 100 * 256**i for i in range(4))
-        header = struct.pack('>BBHIBBHII', 4 << 4 | 5, 0, 20 + len(header) + packet.len, 0, 64, 6, 0, ip(packet.pid), ip(packet.peer_pid)) + header
-    elif PCAP_LINK_TYPE == 229: # IPV6
-        ip = lambda pid: sum(pid // 10**i % 10 * 16**i for i in range(16))
-        header = struct.pack('>BBHHBBQQQQ', 6 << 4, 0, 0, len(header) + packet.len, 6, 64, ip(packet.pid), 0, ip(packet.peer_pid), 0) + header
+        if PCAP_LINK_TYPE == 228: # IPV4
+            ip = lambda pid: sum(pid // 100**i % 100 * 256**i for i in range(4))
+            header = struct.pack('>BBHIBBHII', 4 << 4 | 5, 0, 20 + len(header) + packet.len, 0, 64, 6, 0, ip(packet.pid), ip(packet.peer_pid)) + header
+        elif PCAP_LINK_TYPE == 229: # IPV6
+            ip = lambda pid: sum(pid // 10**i % 10 * 16**i for i in range(16))
+            header = struct.pack('>BBHHBBQQQQ', 6 << 4, 0, 0, len(header) + packet.len, 6, 64, ip(packet.pid), 0, ip(packet.peer_pid), 0) + header
 
     data = header + data
     size = len(header) + packet.len
@@ -397,6 +399,8 @@ outputs = {
     'hexstring': hexstring_output,
     'string': string_output,
     'pcap': pcap_output,
+    'ipv4': pcap_output,
+    'ipv6': pcap_output,
 }
 
 def sig_handler(signum, stack):
@@ -433,6 +437,14 @@ def main(args):
     signal.signal(signal.SIGTERM, sig_handler)
 
     flush_after_each_packet = args.flush
+
+    global PCAP_LINK_TYPE
+    if args.format == 'ipv4':
+        args.format = 'pcap'
+        PCAP_LINK_TYPE = 228
+    elif args.format == 'ipv6':
+        args.format = 'pcap'
+        PCAP_LINK_TYPE = 229
 
     if args.format == 'pcap':
         if args.output != '/dev/stdout':
